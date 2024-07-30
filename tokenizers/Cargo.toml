@@ -1,12 +1,13 @@
 [package]
 name = "tokenizers"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 
 [features]
 icu = ["rust_icu_ubrk", "rust_icu_sys", "rust_icu_uloc", "rust_icu_ustring"]
 
 [dependencies]
+anyhow = "1.0.86"
 lindera-core = "0.27.1"
 lindera-dictionary = "0.27.1"
 lindera-tokenizer = { version = "0.27.1", features = [

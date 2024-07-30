@@ -54,7 +54,7 @@ fn quickstart(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
     );
     "#
     .execute(&mut conn);
@@ -85,7 +85,7 @@ fn quickstart(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) || paradedb.field('category')
     );
     "#.execute(&mut conn);
     let rows: Vec<(String, i32, String)> = r#"
@@ -248,7 +248,7 @@ fn identical_queries(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {}, category: {}}'
+            text_fields => paradedb.field('description') || paradedb.field('category')
     );
     "#
     .execute(&mut conn);
@@ -287,8 +287,8 @@ fn score_bm25(mut conn: PgConnection) {
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
-        numeric_fields => '{rating: {}}'
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating')
     );
     "#
     .execute(&mut conn);
@@ -346,8 +346,8 @@ fn snippet(mut conn: PgConnection) {
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
-        numeric_fields => '{rating: {}}'
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating')
     );
     "#
     .execute(&mut conn);
@@ -400,4 +400,78 @@ fn snippet(mut conn: PgConnection) {
     let ranks: Vec<_> = rows.iter().map(|r| r.3).collect();
     let expected = [3.2668595, 2.8213787];
     assert_eq!(ranks, expected);
+}
+
+#[rstest]
+fn joined_tables(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE mock_products (
+        id SERIAL PRIMARY KEY,
+        product_name TEXT
+    );
+
+    INSERT INTO mock_products (product_name) 
+    VALUES ('Flat Screen TV'), ('MP3 Player');
+
+    CREATE TABLE mock_reviews (
+        review_id SERIAL PRIMARY KEY,
+        product_id INT REFERENCES mock_products(id),
+        review TEXT
+    );
+
+    INSERT INTO mock_reviews (product_id, review)
+    VALUES (1, 'Amazing resolution'), (2, 'Amazing sound'), (2, 'Would recommend');
+
+    CREATE MATERIALIZED VIEW product_reviews 
+    AS SELECT r.review_id, p.product_name, r.review 
+    FROM mock_reviews r 
+    LEFT JOIN mock_products p ON p.id = r.product_id;
+
+    CALL paradedb.create_bm25(
+        index_name => 'product_reviews',
+        table_name => 'product_reviews',
+        key_field => 'review_id',
+        text_fields => paradedb.field('review') || paradedb.field('product_name')
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String, String)> =
+        "SELECT * FROM product_reviews.search('review:amazing OR product_name:tv')"
+            .fetch(&mut conn);
+    assert_eq!(
+        rows,
+        vec![
+            (1, "Flat Screen TV".into(), "Amazing resolution".into()),
+            (2, "MP3 Player".into(), "Amazing sound".into())
+        ]
+    );
+
+    r#"
+    CREATE MATERIALIZED VIEW product_reviews_agg
+    AS SELECT p.id, p.product_name, array_agg(r.review) AS reviews
+    FROM mock_reviews r
+    LEFT JOIN mock_products p
+    ON p.id = r.product_id
+    GROUP BY p.product_name, p.id;
+
+    CALL paradedb.create_bm25(
+        index_name => 'product_reviews_agg',
+        table_name => 'product_reviews_agg',
+        key_field => 'id',
+        text_fields => paradedb.field('reviews') || paradedb.field('product_name')
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String, Vec<String>)> =
+        "SELECT * FROM product_reviews_agg.search('reviews:sound')".fetch(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(
+            2,
+            "MP3 Player".into(),
+            vec!["Amazing sound".into(), "Would recommend".into()]
+        )]
+    );
 }

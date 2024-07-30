@@ -143,7 +143,8 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
                 'table_name', 'bm25_test_table',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
-                'query', paradedb.parse('category:electronics')::text::jsonb
+                'query', paradedb.parse('category:electronics')::text::jsonb,
+                'uuid', '6817e8d2-0076-4b62-8b50-62869cc033fe'
             )
         ) ORDER BY id"
         .fetch_collect(&mut conn);
@@ -167,7 +168,7 @@ fn quoted_table_name(mut conn: PgConnection) {
     	index_name => 'activity',
     	table_name => 'Activity',
     	key_field => 'key',
-    	text_fields => '{"name": {}}'
+    	text_fields => paradedb.field('name')
     )"#
     .execute(&mut conn);
     let row: (i32, String, i32) =
@@ -191,7 +192,7 @@ fn text_arrays(mut conn: PgConnection) {
     	index_name => 'example_table',
     	table_name => 'example_table',
     	key_field => 'id',
-    	text_fields => '{text_array: {}, varchar_array: {}}'
+    	text_fields => paradedb.field('text_array') || paradedb.field('varchar_array')
     )"#
     .execute(&mut conn);
     let row: (i32,) =
@@ -210,6 +211,127 @@ fn text_arrays(mut conn: PgConnection) {
 
     assert_eq!(rows[0], (3,));
     assert_eq!(rows[1], (2,));
+}
+
+#[rstest]
+fn int_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        int_array INT[],
+        bigint_array BIGINT[]
+    );
+    INSERT INTO example_table (int_array, bigint_array) VALUES 
+    ('{1, 2, 3}', '{100, 200}'),
+    ('{4, 5, 6}', '{300, 400, 500}'),
+    ('{7, 8, 9}', '{600, 700, 800, 900}');
+    CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        numeric_fields => paradedb.field('int_array') || paradedb.field('bigint_array')
+    )"#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('int_array:1', stable_sort => true)".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (1,));
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('bigint_array:500', stable_sort => true)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (2,));
+}
+
+#[rstest]
+fn boolean_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        bool_array BOOLEAN[]
+    );
+    INSERT INTO example_table (bool_array) VALUES 
+    ('{true, true, true}'),
+    ('{false, false, false}'),
+    ('{true, true, false}');
+    CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        boolean_fields => paradedb.field('bool_array')
+    )"#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('bool_array:true', stable_sort => true)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], (1,));
+    assert_eq!(rows[1], (3,));
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('bool_array:false', stable_sort => true)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], (2,));
+    assert_eq!(rows[1], (3,));
+}
+
+#[rstest]
+fn datetime_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        date_array DATE[],
+        timestamp_array TIMESTAMP[]
+    );
+    INSERT INTO example_table (date_array, timestamp_array) VALUES 
+    (ARRAY['2023-01-01'::DATE, '2023-02-01'::DATE], ARRAY['2023-02-01 12:00:00'::TIMESTAMP, '2023-02-01 13:00:00'::TIMESTAMP]),
+    (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
+    (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
+    CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        datetime_fields => paradedb.field('date_array') || paradedb.field('timestamp_array')
+    )
+    "#.execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        r#"SELECT id FROM example_table.search('date_array:"2023-02-01T00:00:00Z"', stable_sort => true)"#
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (1,));
+
+    let rows: Vec<(i32,)> =
+        r#"SELECT id FROM example_table.search('timestamp_array:"2023-04-01T15:00:00Z"', stable_sort => true)"#
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (2,));
+}
+
+#[rstest]
+fn json_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        json_array JSONB[]
+    );
+    INSERT INTO example_table (json_array) VALUES 
+    (ARRAY['{"name": "John", "age": 30}'::JSONB, '{"name": "Jane", "age": 25}'::JSONB]),
+    (ARRAY['{"name": "Bob", "age": 40}'::JSONB, '{"name": "Alice", "age": 35}'::JSONB]),
+    (ARRAY['{"name": "Mike", "age": 50}'::JSONB, '{"name": "Lisa", "age": 45}'::JSONB]);"#
+        .execute(&mut conn);
+
+    match "CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        json_fields => paradedb.field('json_array')
+    )"
+    .execute_result(&mut conn)
+    {
+        Ok(_) => panic!("json arrays should not yet be supported"),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
+    }
 }
 
 #[rstest]
@@ -237,7 +359,7 @@ fn uuid(mut conn: PgConnection) {
     	index_name => 'uuid_table',
         table_name => 'uuid_table',
         key_field => 'id',
-        text_fields => '{"some_text": {}}'
+        text_fields => paradedb.field('some_text')
     );
     
     CALL paradedb.drop_bm25('uuid_table');"#
@@ -248,7 +370,7 @@ fn uuid(mut conn: PgConnection) {
         index_name => 'uuid_table',
         table_name => 'uuid_table',
         key_field => 'id',
-        text_fields => '{"some_text": {}, "random_uuid": {}}'
+        text_fields => paradedb.field('some_text') || paradedb.field('random_uuid')
     )"#
     .execute(&mut conn);
 
@@ -606,7 +728,7 @@ fn explain(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
     )"
     .execute(&mut conn);
 
@@ -633,7 +755,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: \"en_stem\"}}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem'))
     )"
     .execute(&mut conn);
 
@@ -820,8 +942,8 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -896,8 +1018,8 @@ fn bm25_partial_index_explain(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_explain',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -925,8 +1047,8 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_hybrid',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -1015,8 +1137,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'city = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -1028,8 +1150,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''123''::INTEGER'
     );"
     .execute_result(&mut conn);
@@ -1041,8 +1163,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics''' 
     );"
     .execute_result(&mut conn);
@@ -1053,8 +1175,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -1072,8 +1194,8 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute(&mut conn);
@@ -1124,7 +1246,7 @@ fn high_limit_rows(mut conn: PgConnection) {
         schema_name => 'public', 
         index_name => 'large_series', 
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     );"
     .execute(&mut conn);
 
