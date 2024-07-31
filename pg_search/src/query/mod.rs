@@ -1,27 +1,10 @@
-// Copyright (c) 2023-2024 Retake, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 #![allow(dead_code)]
 
+use anyhow::{bail, Result};
 use core::panic;
-use std::{collections::HashMap, ops::Bound};
-
 use pgrx::PostgresType;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, ops::Bound};
 use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
@@ -29,7 +12,7 @@ use tantivy::{
         Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
-    schema::{Field, FieldType, IndexRecordOption, OwnedValue},
+    schema::{Field, FieldType, IndexRecordOption, Value},
     Term,
 };
 use thiserror::Error;
@@ -65,7 +48,7 @@ pub enum SearchQueryInput {
         field: String,
         value: String,
         distance: Option<u8>,
-        transposition_cost_one: Option<bool>,
+        tranposition_cost_one: Option<bool>,
         prefix: Option<bool>,
     },
     MoreLikeThis {
@@ -77,7 +60,7 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        fields: Vec<(String, tantivy::schema::OwnedValue)>,
+        fields: Vec<(String, tantivy::schema::Value)>,
     },
     Parse {
         query_string: String,
@@ -94,8 +77,8 @@ pub enum SearchQueryInput {
     },
     Range {
         field: String,
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        lower_bound: std::ops::Bound<tantivy::schema::Value>,
+        upper_bound: std::ops::Bound<tantivy::schema::Value>,
     },
     Regex {
         field: String,
@@ -103,10 +86,10 @@ pub enum SearchQueryInput {
     },
     Term {
         field: Option<String>,
-        value: tantivy::schema::OwnedValue,
+        value: tantivy::schema::Value,
     },
     TermSet {
-        terms: Vec<(String, tantivy::schema::OwnedValue)>,
+        terms: Vec<(String, tantivy::schema::Value)>,
     },
 }
 
@@ -115,19 +98,19 @@ pub trait AsFieldType<T> {
 
     fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
 
-    fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
+    fn is_field_type(&self, from: &T, value: &Value) -> bool {
         matches!(
             (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _)), OwnedValue::Str(_))
-                | (Some((FieldType::U64(_), _)), OwnedValue::U64(_))
-                | (Some((FieldType::I64(_), _)), OwnedValue::I64(_))
-                | (Some((FieldType::F64(_), _)), OwnedValue::F64(_))
-                | (Some((FieldType::Bool(_), _)), OwnedValue::Bool(_))
-                | (Some((FieldType::Date(_), _)), OwnedValue::Date(_))
-                | (Some((FieldType::Facet(_), _)), OwnedValue::Facet(_))
-                | (Some((FieldType::Bytes(_), _)), OwnedValue::Bytes(_))
-                | (Some((FieldType::JsonObject(_), _)), OwnedValue::Object(_))
-                | (Some((FieldType::IpAddr(_), _)), OwnedValue::IpAddr(_))
+            (Some((FieldType::Str(_), _)), Value::Str(_))
+                | (Some((FieldType::U64(_), _)), Value::U64(_))
+                | (Some((FieldType::I64(_), _)), Value::I64(_))
+                | (Some((FieldType::F64(_), _)), Value::F64(_))
+                | (Some((FieldType::Bool(_), _)), Value::Bool(_))
+                | (Some((FieldType::Date(_), _)), Value::Date(_))
+                | (Some((FieldType::Facet(_), _)), Value::Facet(_))
+                | (Some((FieldType::Bytes(_), _)), Value::Bytes(_))
+                | (Some((FieldType::JsonObject(_), _)), Value::JsonObject(_))
+                | (Some((FieldType::IpAddr(_), _)), Value::IpAddr(_))
         )
     }
 
@@ -198,7 +181,7 @@ impl SearchQueryInput {
         self,
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
-    ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn Query>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
             Self::Boolean {
@@ -270,7 +253,7 @@ impl SearchQueryInput {
                 field,
                 value,
                 distance,
-                transposition_cost_one,
+                tranposition_cost_one,
                 prefix,
             } => {
                 let field = field_lookup
@@ -278,19 +261,19 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
 
                 let term = Term::from_field_text(field, &value);
-                let distance = distance.unwrap_or(2);
-                let transposition_cost_one = transposition_cost_one.unwrap_or(true);
+                let distance = distance.unwrap_or(1);
+                let tranposition_cost_one = tranposition_cost_one.unwrap_or(false);
                 if prefix.unwrap_or(false) {
                     Ok(Box::new(FuzzyTermQuery::new(
                         term,
                         distance,
-                        transposition_cost_one,
+                        tranposition_cost_one,
                     )))
                 } else {
                     Ok(Box::new(FuzzyTermQuery::new_prefix(
                         term,
                         distance,
-                        transposition_cost_one,
+                        tranposition_cost_one,
                     )))
                 }
             }
@@ -335,7 +318,7 @@ impl SearchQueryInput {
                 let mut fields_map = HashMap::new();
                 for (field_name, value) in fields {
                     if !field_lookup.is_field_type(&field_name, &value) {
-                        return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                        bail!("{}", QueryError::WrongFieldType(field_name))
                     }
 
                     let (_, field) = field_lookup
@@ -474,13 +457,9 @@ impl SearchQueryInput {
     }
 }
 
-fn value_to_term(
-    field: Field,
-    value: OwnedValue,
-    field_type: &FieldType,
-) -> Result<Term, Box<dyn std::error::Error>> {
+fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Result<Term> {
     Ok(match value {
-        OwnedValue::Str(text) => {
+        Value::Str(text) => {
             match field_type {
                 FieldType::Date(_) => {
                     // Serialization turns date into string, so we have to turn it back into a Tantivy date
@@ -502,8 +481,8 @@ fn value_to_term(
                 _ => Term::from_field_text(field, &text),
             }
         }
-        OwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
-        OwnedValue::U64(u64) => {
+        Value::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
+        Value::U64(u64) => {
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             //     so we should use the field type to assign the term type
             match field_type {
@@ -512,15 +491,14 @@ fn value_to_term(
                 _ => panic!("invalid field type for u64 value"),
             }
         }
-        OwnedValue::I64(i64) => Term::from_field_i64(field, i64),
-        OwnedValue::F64(f64) => Term::from_field_f64(field, f64),
-        OwnedValue::Bool(bool) => Term::from_field_bool(field, bool),
-        OwnedValue::Date(date) => Term::from_field_date(field, date),
-        OwnedValue::Facet(facet) => Term::from_facet(field, &facet),
-        OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
-        OwnedValue::Object(_) => panic!("json cannot be converted to term"),
-        OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
-        _ => panic!("Tantivy OwnedValue type not supported"),
+        Value::I64(i64) => Term::from_field_i64(field, i64),
+        Value::F64(f64) => Term::from_field_f64(field, f64),
+        Value::Bool(bool) => Term::from_field_bool(field, bool),
+        Value::Date(date) => Term::from_field_date(field, date),
+        Value::Facet(facet) => Term::from_facet(field, &facet),
+        Value::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
+        Value::JsonObject(_) => panic!("json cannot be converted to term"),
+        Value::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
     })
 }
 
