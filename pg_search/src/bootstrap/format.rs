@@ -1,20 +1,3 @@
-// Copyright (c) 2023-2024 Retake, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 use serde_json::Value;
 
 pub fn format_bm25_function(
@@ -31,11 +14,7 @@ pub fn format_bm25_function(
             offset_rows integer DEFAULT NULL,
             limit_rows integer DEFAULT NULL,
             alias text DEFAULT NULL,
-            stable_sort boolean DEFAULT NULL,
-            highlight_field text DEFAULT NULL,
-            postfix text DEFAULT NULL,
-            prefix text DEFAULT NULL,
-            max_num_chars integer DEFAULT NULL
+            stable_sort boolean DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         BEGIN
             RETURN QUERY SELECT * FROM {function_name}(
@@ -43,11 +22,7 @@ pub fn format_bm25_function(
                 offset_rows => offset_rows,
                 limit_rows => limit_rows,
                 alias => alias,
-                stable_sort => stable_sort,
-                highlight_field => highlight_field,
-                postfix => postfix,
-                prefix => prefix,
-                max_num_chars => max_num_chars
+                stable_sort => stable_sort
             );
         END
         $func$ LANGUAGE plpgsql;
@@ -57,11 +32,7 @@ pub fn format_bm25_function(
             offset_rows integer DEFAULT NULL,
             limit_rows integer DEFAULT NULL,
             alias text DEFAULT NULL,
-            stable_sort boolean DEFAULT NULL,
-            highlight_field text DEFAULT NULL,
-            postfix text DEFAULT NULL,
-            prefix text DEFAULT NULL,
-            max_num_chars integer DEFAULT NULL
+            stable_sort boolean DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -71,11 +42,7 @@ pub fn format_bm25_function(
                 'offset_rows', offset_rows,
                 'limit_rows', limit_rows,
                 'alias', alias,
-                'stable_sort', stable_sort,
-                'highlight_field', highlight_field,
-                'postfix', postfix,
-                'prefix', prefix,
-                'max_num_chars', max_num_chars
+                'stable_sort', stable_sort
             );
             {function_body};
         END
@@ -187,6 +154,7 @@ pub fn format_aggregate_function(function_name: &str, index_json: &Value) -> Str
             );
         END
         $func$ LANGUAGE plpgsql;
+
         CREATE OR REPLACE FUNCTION {function_name}(
             aggs text,
             query text
@@ -200,6 +168,7 @@ pub fn format_aggregate_function(function_name: &str, index_json: &Value) -> Str
             );
         END
         $func$ LANGUAGE plpgsql;
+
         CREATE OR REPLACE FUNCTION {function_name}(
             aggs text,
             query paradedb.searchqueryinput
@@ -218,4 +187,3 @@ pub fn format_aggregate_function(function_name: &str, index_json: &Value) -> Str
 
     formatted_sql
 }
-
