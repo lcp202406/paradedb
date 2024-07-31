@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use super::format::format_aggregate_function;
 use super::format::format_bm25_function;
 use super::format::format_empty_function;
 use super::format::format_hybrid_function;
@@ -379,7 +380,11 @@ fn create_bm25_impl(
         ),
         &index_json
     ))?;
-
+Spi::run(&format_aggregate_function(
+        &spi::quote_qualified_identifier(index_name, "aggregate"),
+        &index_json,
+    ))?;
+    
     Spi::run(&format!(
         "SET client_min_messages TO {}",
         spi::quote_literal(original_client_min_messages)
