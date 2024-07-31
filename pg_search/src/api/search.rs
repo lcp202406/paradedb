@@ -22,6 +22,7 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::{globals::WriterGlobal, index::SearchIndex};
+use anyhow::{anyhow, Result};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
 use tantivy::aggregation::agg_req::Aggregations;
