@@ -263,3 +263,35 @@ fn drop_bm25_internal(index_name: &str) {
     SearchIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err:?}"));
 }
+pub fn aggregate_internal(
+    aggs: String,
+    config_json: default!(Option<JsonB>, "NULL"),
+) -> Result<JsonB> {
+    let JsonB(search_config_json) =
+        config_json.ok_or(anyhow!("no config json passed to aggregate"))?;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json).expect("could not parse search config");
+    let mut search_index = get_search_index(&search_config.index_name);
+
+    // Must reload, or new results will not appear in the search.
+    search_index.reader.reload()?;
+
+    let tantivy_aggs: Aggregations = serde_json::from_str(&aggs)?;
+    let tantivy_query = search_config
+        .query
+        .into_tantivy_query(&search_index.schema, &mut search_index.query_parser())?;
+    let collector = AggregationCollector::from_aggs(tantivy_aggs, Default::default());
+
+    let searcher = search_index.searcher();
+    let results: AggregationResults = searcher.search_with_executor(
+        &tantivy_query,
+        &collector,
+        &search_index.executor,
+        tantivy::query::EnableScoring::Enabled {
+            searcher: &searcher,
+            statistics_provider: &searcher,
+        },
+    )?;
+    Ok(JsonB(serde_json::to_value(results)?))
+}
+
