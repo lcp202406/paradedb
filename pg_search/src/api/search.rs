@@ -1,3 +1,4 @@
+
 // Copyright (c) 2023-2024 Retake, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
@@ -23,6 +24,9 @@ use crate::writer::WriterDirectory;
 use crate::{globals::WriterGlobal, index::SearchIndex};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
+use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::agg_result::AggregationResults;
+use tantivy::aggregation::AggregationCollector;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
